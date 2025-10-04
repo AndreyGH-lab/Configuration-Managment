@@ -1,18 +1,3 @@
-#!/usr/bin/env python3
-"""
-emulator_stage1.py -- Stage 1 REPL prototype for Variant 20.
-
-Как запускать:
-    python emulator_stage1.py
-
-Описание:
-- CLI REPL с приглашением вида: username@hostname:~$
-- Парсер: простое разделение по пробелам
-- Заглушки: ls, cd (выводят имя команды и аргументы)
-- exit для выхода
-- cd изменяет виртуальный cwd (в памяти), физическая файловая система не меняется
-"""
-
 import os
 import sys
 import getpass
