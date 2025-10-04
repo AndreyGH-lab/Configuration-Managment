@@ -1,0 +1,5 @@
+ls -la
+cd /var/tmp
+ls
+cd
+

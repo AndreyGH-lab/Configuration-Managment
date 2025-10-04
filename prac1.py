@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""
-emulator_stage2_autorun.py — Stage 2 (улучшенный вариант)
-
-Теперь эмулятор:
-- автоматически ищет и выполняет startup.txt при запуске (если файл есть);
-- после выполнения скрипта переходит в REPL;
-- если в скрипте была команда 'exit', программа завершается.
-"""
-
 import os
 import getpass
 import socket
