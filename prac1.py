@@ -1,16 +1,133 @@
-# This is a sample Python script.
+#!/usr/bin/env python3
+"""
+emulator_stage1.py -- Stage 1 REPL prototype for Variant 20.
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+Как запускать:
+    python emulator_stage1.py
+
+Описание:
+- CLI REPL с приглашением вида: username@hostname:~$
+- Парсер: простое разделение по пробелам
+- Заглушки: ls, cd (выводят имя команды и аргументы)
+- exit для выхода
+- cd изменяет виртуальный cwd (в памяти), физическая файловая система не меняется
+"""
+
+import os
+import sys
+import getpass
+import socket
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+class ShellEmulator:
+    def __init__(self, prompt_template="{user}@{host}:{cwd}$ "):
+        # реальные данные ОС
+        self.user = getpass.getuser()
+        # короткое hostname (до первой точки)
+        self.host = socket.gethostname().split(".", 1)[0]
+        # виртуальная текущая директория (не трогаем реальную FS)
+        self.cwd = os.getcwd()
+        self.home = os.path.expanduser("~")
+        self.prompt_template = prompt_template
+        self.running = True
+
+    def _shorten_cwd(self, path: str) -> str:
+        """Показывает путь с заменой домашней директории на ~"""
+        if path == self.home or path.startswith(self.home + os.sep):
+            return path.replace(self.home, "~", 1)
+        return path
+
+    def format_prompt(self) -> str:
+        """Собирает строку приглашения"""
+        return self.prompt_template.format(
+            user=self.user,
+            host=self.host,
+            cwd=self._shorten_cwd(self.cwd),
+        )
+
+    def parse_input(self, line: str):
+        """
+        Простой парсер: разделение по пробелам.
+        Возвращает (command, args_list) или (None, []) если пустая строка.
+        (Важно: по требованию — НЕ используем обработку кавычек.)
+        """
+        tokens = line.strip().split()
+        if not tokens:
+            return None, []
+        return tokens[0], tokens[1:]
+
+    # ----- команды-заглушки -----
+    def cmd_ls(self, args):
+        """Заглушка ls: просто печатает имя команды и аргументы"""
+        print(f"[stub] ls called with args: {args}")
+
+    def cmd_cd(self, args):
+        """
+        Заглушка cd: печатает имя + аргументы и изменяет виртуальный cwd в памяти.
+        Не вызывает os.chdir — физический диск не меняется.
+        """
+        print(f"[stub] cd called with args: {args}")
+        if not args:
+            # cd без аргументов -> домой
+            self.cwd = self.home
+            print(f"(virtual) cwd -> {self.cwd}")
+            return
+
+        target = args[0]
+        if os.path.isabs(target):
+            new = os.path.normpath(target)
+        else:
+            new = os.path.normpath(os.path.join(self.cwd, target))
+
+        # Мы не проверяем существование, просто сохраняем виртуальный путь
+        self.cwd = new
+        print(f"(virtual) cwd -> {self.cwd}")
+
+    def cmd_exit(self, args):
+        print("Exiting emulator.")
+        self.running = False
+
+    # ----- выполнение команд -----
+    def run_command(self, cmd: str, args: list):
+        if cmd == "exit":
+            self.cmd_exit(args)
+        elif cmd == "ls":
+            self.cmd_ls(args)
+        elif cmd == "cd":
+            self.cmd_cd(args)
+        else:
+            print(f"Unknown command: {cmd!r}")
+
+    def repl(self):
+        """Основной цикл REPL"""
+        try:
+            while self.running:
+                try:
+                    line = input(self.format_prompt())
+                except EOFError:
+                    # Ctrl-D / EOF -> выход
+                    print()
+                    break
+
+                if not line.strip():
+                    continue
+
+                cmd, args = self.parse_input(line)
+                if cmd is None:
+                    continue
+
+                # Выполняем команду (заглушки / обработка ошибок)
+                self.run_command(cmd, args)
+
+        except KeyboardInterrupt:
+            # Ctrl-C -> красиво завершаем
+            print("\nInterrupted. Exiting.")
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+def main():
+    emulator = ShellEmulator()
+    emulator.repl()
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+
+if __name__ == "__main__":
+    main()
