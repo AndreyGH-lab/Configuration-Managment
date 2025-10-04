@@ -31,11 +31,7 @@ class ShellEmulator:
         )
 
     def parse_input(self, line: str):
-        """
-        Простой парсер: разделение по пробелам.
-        Возвращает (command, args_list) или (None, []) если пустая строка.
-        (Важно: по требованию — НЕ используем обработку кавычек.)
-        """
+
         tokens = line.strip().split()
         if not tokens:
             return None, []
@@ -43,14 +39,9 @@ class ShellEmulator:
 
     # ----- команды-заглушки -----
     def cmd_ls(self, args):
-        """Заглушка ls: просто печатает имя команды и аргументы"""
         print(f"[stub] ls called with args: {args}")
 
     def cmd_cd(self, args):
-        """
-        Заглушка cd: печатает имя + аргументы и изменяет виртуальный cwd в памяти.
-        Не вызывает os.chdir — физический диск не меняется.
-        """
         print(f"[stub] cd called with args: {args}")
         if not args:
             # cd без аргументов -> домой
@@ -72,7 +63,6 @@ class ShellEmulator:
         print("Exiting emulator.")
         self.running = False
 
-    # ----- выполнение команд -----
     def run_command(self, cmd: str, args: list):
         if cmd == "exit":
             self.cmd_exit(args)
