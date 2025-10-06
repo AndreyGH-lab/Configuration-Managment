@@ -1,0 +1,7 @@
+path,type,content
+/,dir,
+/docs,dir,
+/docs/readme.txt,file,This is a README
+/docs/manual/intro.txt,file,Intro text
+/assets,dir
+/assets/img.png,file,iVBORw0K...

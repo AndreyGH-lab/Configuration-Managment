@@ -1,5 +1,8 @@
-ls -la
-cd /var/tmp
+vfs-info
 ls
-cd
+cd /docs
+ls
+cd /data
+ls
+tree
 
