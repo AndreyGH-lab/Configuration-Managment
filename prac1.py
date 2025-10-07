@@ -184,7 +184,7 @@ def main():
     print(f"  VFS path       : {args.vfs_path}")
     print(f"  Prompt template: {args.prompt!r}\n")
 
-    # Если пользователь не указал путь, используем дефолтный CSV
+    #Если пользователь не указал путь, используем дефолтный CSV
     vfs_path = args.vfs_path or os.path.join(os.getcwd(), "vfs_nested.csv")
 
     emulator = ShellEmulator(prompt_template=args.prompt, vfs_path=vfs_path)

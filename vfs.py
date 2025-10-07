@@ -116,7 +116,7 @@ class VirtualFileSystem:
         else:
             data_rows = []
 
-        # Построение дерева
+        #Построение дерева
         for row in data_rows:
             if not row or all((not cell.strip()) for cell in row):
                 continue
