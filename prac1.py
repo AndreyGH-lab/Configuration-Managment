@@ -2,6 +2,7 @@ import os
 import getpass
 import socket
 import argparse
+import platform
 
 from vfs import VirtualFileSystem, VFSException
 
@@ -101,6 +102,15 @@ class ShellEmulator:
         except VFSException as e:
             print(f"tree: {e}")
 
+    def cmd_uname(self, args):
+        system = platform.system()
+        node = platform.node()
+        release = platform.release()
+        python_ver = platform.python_version()
+        print(f"{system} {node} {release} Python/{python_ver}")
+
+    def cmd_whoami(self, args):
+        print(self.user)
 
     def run_command(self, cmd, args):
         try:
@@ -114,6 +124,10 @@ class ShellEmulator:
                 self.cmd_vfs_info(args)
             elif cmd == "tree":
                 self.cmd_tree(args)
+            elif cmd == "uname":
+                self.cmd_uname(args)
+            elif cmd == "whoami":
+                self.cmd_whoami(args)
             else:
                 print(f"Unknown command: {cmd!r}")
         except Exception as e:
