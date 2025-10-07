@@ -156,7 +156,7 @@ class VirtualFileSystem:
                 f = VFile(name=name, content=content)
                 parent_node.add_child(f)
 
-    # Обработка дерева
+    #Обработка дерева
     def _ensure_dir(self, abs_path: str) -> VDirectory:
         abs_path = self._normalize_posix(abs_path)
         if abs_path == "/":
