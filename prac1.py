@@ -1,86 +1,74 @@
 import os
 import getpass
 import socket
-import argparse
 import platform
-
-from vfs import VirtualFileSystem, VFSException
+from vfs import VirtualFileSystem, VFSException, format_mode
 
 
 class ShellEmulator:
     def __init__(self, prompt_template="{user}@{host}:{cwd}$ ", vfs_path=None):
+        # Инициализация эмулятора: имя пользователя, хост и виртуальная ФС
         self.user = getpass.getuser()
         self.host = socket.gethostname().split(".", 1)[0]
-        self.home = os.path.expanduser("~")
         self.prompt_template = prompt_template
         self.running = True
-
-        # VFS
         self.vfs = None
-        if vfs_path:
+        # Попытка загрузить VFS из CSV
+        if vfs_path and os.path.exists(vfs_path):
             try:
                 self.vfs = VirtualFileSystem(vfs_path)
                 print(f"[INFO] VFS loaded successfully from {vfs_path}")
             except Exception as e:
                 print(f"[ERROR] Failed to load VFS: {e}")
-                self.vfs = None
 
-        # current directory depends on mode
-        self.cwd = "/" if self.vfs else os.getcwd()
+    def format_prompt(self):
+        # Формирует приглашение к вводу (username@host:cwd$)
+        cwd_display = self.vfs.cwd if self.vfs else "~"
+        return self.prompt_template.format(user=self.user, host=self.host, cwd=cwd_display)
 
-    def _shorten_cwd(self, path: str) -> str:
-        if not self.vfs:
-            if path == self.home or path.startswith(self.home + os.sep):
-                return path.replace(self.home, "~", 1)
-        return path
-
-    def format_prompt(self) -> str:
-        cwd_display = self.vfs.cwd if self.vfs else self._shorten_cwd(self.cwd)
-        return self.prompt_template.format(
-            user=self.user, host=self.host, cwd=cwd_display
-        )
-
-
-    def parse_input(self, line: str):
-        tokens = line.strip().split()
-        if not tokens:
-            return None, []
-        return tokens[0], tokens[1:]
-
-
+    #  команды
     def cmd_ls(self, args):
-        if self.vfs:
+        # Вывод содержимого каталога (опционально с режимом -l)
+        if not self.vfs:
+            print("[stub] ls")
+            return
+        if args and args[0] == "-l":
             try:
-                target = args[0] if args else None
-                items = self.vfs.ls(target)
-                print("  ".join(items))
+                node = self.vfs._get_node(self.vfs.cwd)
+                for name in sorted(node.children.keys()):
+                    entry = node.children[name]
+                    print(f"{format_mode(entry.mode)} {name}")
             except VFSException as e:
                 print(f"ls: {e}")
         else:
-            print(f"[stub] ls called with args: {args}")
+            try:
+                print("  ".join(self.vfs.ls()))
+            except VFSException as e:
+                print(f"ls: {e}")
 
     def cmd_cd(self, args):
-        if self.vfs:
-            try:
-                target = args[0] if args else "/"
-                self.vfs.cd(target)
-            except VFSException as e:
-                print(f"cd: {e}")
-        else:
-            print(f"[stub] cd called with args: {args}")
-            if not args:
-                self.cwd = self.home
-                print(f"(virtual) cwd -> {self.cwd}")
-                return
-            target = args[0]
-            new = os.path.normpath(
-                target if os.path.isabs(target)
-                else os.path.join(self.cwd, target)
-            )
-            self.cwd = new
-            print(f"(virtual) cwd -> {self.cwd}")
+        # Переход в указанный каталог
+        if not self.vfs:
+            print("[stub] cd")
+            return
+        target = args[0] if args else "/"
+        try:
+            self.vfs.cd(target)
+        except VFSException as e:
+            print(f"cd: {e}")
+
+    def cmd_tree(self, args):
+        # Рекурсивное отображение структуры каталогов
+        if not self.vfs:
+            print("[stub] tree")
+            return
+        try:
+            print(self.vfs.tree())
+        except VFSException as e:
+            print(f"tree: {e}")
 
     def cmd_vfs_info(self, args):
+        # Вывод информации о текущей виртуальной файловой системе
         if not self.vfs:
             print("No VFS loaded.")
             return
@@ -88,113 +76,112 @@ class ShellEmulator:
         print(f"VFS file: {info['filename']}")
         print(f"SHA-256 : {info['sha256']}")
 
-    def cmd_exit(self, args):
-        print("Exiting emulator.")
-        self.running = False
+    def cmd_uname(self, args):
+        # Имитация системной команды uname
+        print(f"{platform.system()} {self.host} {platform.release()} Python/{platform.python_version()}")
 
-    def cmd_tree(self, args):
+    def cmd_whoami(self, args):
+        # Возвращает имя текущего пользователя
+        print(self.user)
+
+    def cmd_chmod(self, args):
+        # Изменение прав доступа (chmod MODE PATH)
         if not self.vfs:
             print("No VFS loaded.")
             return
-        path = args[0] if args else None
+        if len(args) != 2:
+            print("Usage: chmod MODE PATH")
+            return
         try:
-            print(self.vfs.tree(path))
+            self.vfs.chmod(args[1], args[0])
         except VFSException as e:
-            print(f"tree: {e}")
+            print(f"chmod: {e}")
 
-    def cmd_uname(self, args):
-        system = platform.system()
-        node = platform.node()
-        release = platform.release()
-        python_ver = platform.python_version()
-        print(f"{system} {node} {release} Python/{python_ver}")
-
-    def cmd_whoami(self, args):
-        print(self.user)
-
-    def run_command(self, cmd, args):
-        try:
-            if cmd == "exit":
-                self.cmd_exit(args)
-            elif cmd == "ls":
-                self.cmd_ls(args)
-            elif cmd == "cd":
-                self.cmd_cd(args)
-            elif cmd == "vfs-info":
-                self.cmd_vfs_info(args)
-            elif cmd == "tree":
-                self.cmd_tree(args)
-            elif cmd == "uname":
-                self.cmd_uname(args)
-            elif cmd == "whoami":
-                self.cmd_whoami(args)
+    def cmd_rm(self, args):
+        # Удаление файлов или каталогов (-r для рекурсивного)
+        if not self.vfs:
+            print("No VFS loaded.")
+            return
+        recursive = False
+        paths = []
+        for a in args:
+            if a in ("-r", "-R"):
+                recursive = True
             else:
-                print(f"Unknown command: {cmd!r}")
-        except Exception as e:
-            print(f"Error while executing command '{cmd}': {e}")
+                paths.append(a)
+        if not paths:
+            print("Usage: rm [-r] PATH ...")
+            return
+        for p in paths:
+            try:
+                self.vfs.rm(p, recursive=recursive)
+            except VFSException as e:
+                print(f"rm: {e}")
+
+    def cmd_exit(self, args):
+        # Завершает работу эмулятора
+        print("Exiting emulator.")
+        self.running = False
+
+    # диспетчер команд
+    def run_command(self, cmd, args):
+        # Вызывает нужный обработчик по имени команды
+        mapping = {
+            "ls": self.cmd_ls,
+            "cd": self.cmd_cd,
+            "tree": self.cmd_tree,
+            "vfs-info": self.cmd_vfs_info,
+            "uname": self.cmd_uname,
+            "whoami": self.cmd_whoami,
+            "chmod": self.cmd_chmod,
+            "rm": self.cmd_rm,
+            "exit": self.cmd_exit,
+        }
+        if cmd in mapping:
+            mapping[cmd](args)
+        else:
+            print(f"Unknown command: {cmd}")
 
     def run_script(self, script_path):
+        # Выполняет команды из стартового скрипта (startup.txt)
         if not os.path.exists(script_path):
-            print(f"[INFO] No startup script found ({script_path}), skipping.")
+            print(f"[INFO] No startup script found ({script_path})")
             return
         print(f"\n[INFO] Executing startup script: {script_path}\n")
-        try:
-            with open(script_path, "r", encoding="utf-8") as f:
-                for lineno, line in enumerate(f, start=1):
-                    line = line.strip()
-                    if not line or line.startswith("#"):
-                        continue
-                    print(f"{self.format_prompt()}{line}")
-                    cmd, args = self.parse_input(line)
-                    if cmd:
-                        self.run_command(cmd, args)
-                        if not self.running:
-                            print("[INFO] Script terminated by 'exit' command.\n")
-                            return
-        except Exception as e:
-            print(f"[ERROR] Failed to execute script '{script_path}': {e}")
-        print("\n[INFO] Startup script execution finished.\n")
+        with open(script_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                print(f"{self.format_prompt()}{line}")
+                cmd, *args = line.split()
+                self.run_command(cmd, args)
+                if not self.running:
+                    return
+        print("\n[INFO] Startup script finished.\n")
 
     def repl(self):
-        try:
-            while self.running:
-                try:
-                    line = input(self.format_prompt())
-                except EOFError:
-                    print()
-                    break
-                if not line.strip():
-                    continue
-                cmd, args = self.parse_input(line)
-                if cmd:
-                    self.run_command(cmd, args)
-        except KeyboardInterrupt:
-            print("\nInterrupted. Exiting.")
+        # Основной REPL-цикл (интерактивный режим)
+        while self.running:
+            try:
+                line = input(self.format_prompt())
+            except EOFError:
+                print()
+                break
+            if not line.strip():
+                continue
+            cmd, *args = line.split()
+            self.run_command(cmd, args)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Stage 3: Shell emulator with Virtual File System"
-    )
-    parser.add_argument("--vfs-path", help="Path to VFS CSV file", default=None)
-    parser.add_argument("--prompt", help="Custom prompt template", default="{user}@{host}:{cwd}$ ")
-    args = parser.parse_args()
-
-    print("[DEBUG] Launch configuration:")
-    print(f"  VFS path       : {args.vfs_path}")
-    print(f"  Prompt template: {args.prompt!r}\n")
-
-    #Если пользователь не указал путь, используем дефолтный CSV
-    vfs_path = args.vfs_path or os.path.join(os.getcwd(), "vfs_nested.csv")
-
-    emulator = ShellEmulator(prompt_template=args.prompt, vfs_path=vfs_path)
-
-    startup_path = os.path.join(os.getcwd(), "startup.txt")
-    emulator.run_script(startup_path)
-
+    # Точка входа: загрузка VFS и запуск скрипта / REPL
+    vfs_path = os.path.join(os.getcwd(), "vfs_nested.csv")
+    emulator = ShellEmulator(vfs_path=vfs_path)
+    startup = os.path.join(os.getcwd(), "startup.txt")
+    emulator.run_script(startup)
     if emulator.running:
         emulator.repl()
-
 
 
 if __name__ == "__main__":

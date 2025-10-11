@@ -1,8 +1,18 @@
 vfs-info
-ls
-cd /docs
-ls
-cd /data
-ls
+ls -l
 tree
+cd /docs
+ls -l
+chmod 000 /docs/readme.txt
+ls -l
+tree
+rm /docs/readme.txt
+chmod 700 /docs/readme.txt
+ls -l
+rm /docs/readme.txt
+ls /docs
+cd /
+tree
+uname
+whoami
 

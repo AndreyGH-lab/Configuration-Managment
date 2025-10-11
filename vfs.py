@@ -1,11 +1,13 @@
+# Виртуальная файловая система для эмулятора
+# Всё хранится в памяти, загрузка из CSV
+
 from __future__ import annotations
 import csv
 import os
 import hashlib
 import base64
 import posixpath
-#from pathlib import PurePosixPath
-from typing import Optional, Dict, List, Union
+from typing import Optional, Dict, List
 
 
 class VFSException(Exception):
@@ -13,41 +15,42 @@ class VFSException(Exception):
 
 
 class VEntry:
-    """Базовый класс для VFS"""
-    def __init__(self, name: str, parent: Optional["VDirectory"] = None):
+    # Общая база для файла и каталога
+    def __init__(self, name: str, parent: Optional["VDirectory"] = None, mode: Optional[int] = None):
         self.name = name
         self.parent = parent
+        self.mode = mode or 0o755
 
     def path(self) -> str:
+        # Возвращает абсолютный путь элемента
         parts = []
-        node: Optional[VEntry] = self
-        while node is not None and node.parent is not None:
+        node = self
+        while node.parent is not None:
             parts.append(node.name)
             node = node.parent
-        if not parts:
-            return "/"
         return "/" + "/".join(reversed(parts))
 
 
 class VFile(VEntry):
-    """Для виртуальных файлов с содержанием строкового типа"""
-    def __init__(self, name: str, content: str = "", parent: Optional["VDirectory"] = None):
-        super().__init__(name, parent)
+    # Представление файла
+    def __init__(self, name: str, content: str = "", parent: Optional["VDirectory"] = None, mode: Optional[int] = None):
+        super().__init__(name, parent, mode or 0o644)
         self.content = content
 
     def read(self, decode_base64: bool = False) -> bytes:
+        # Возвращает содержимое файла (опционально декодируя base64)
         if decode_base64:
             return base64.b64decode(self.content)
         return self.content.encode("utf-8")
 
 
 class VDirectory(VEntry):
-    """виртуальные директории"""
-    def __init__(self, name: str, parent: Optional["VDirectory"] = None):
-        super().__init__(name, parent)
+    # Каталог с дочерними элементами
+    def __init__(self, name: str, parent: Optional["VDirectory"] = None, mode: Optional[int] = None):
+        super().__init__(name, parent, mode or 0o755)
         self.children: Dict[str, VEntry] = {}
 
-    def add_child(self, entry: VEntry) -> None:
+    def add_child(self, entry: VEntry):
         entry.parent = self
         self.children[entry.name] = entry
 
@@ -55,129 +58,88 @@ class VDirectory(VEntry):
         return self.children.get(name)
 
 
+def format_mode(mode_int: int) -> str:
+    # Преобразует числовые права в rwx-строку
+    s = ""
+    for shift in (6, 3, 0):
+        v = (mode_int >> shift) & 0o7
+        s += "r" if v & 4 else "-"
+        s += "w" if v & 2 else "-"
+        s += "x" if v & 1 else "-"
+    return s
+
+
 class VirtualFileSystem:
     def __init__(self, csv_path: str):
         self.source_path = csv_path
-        self.source_bytes: Optional[bytes] = None
-        self.sha256: Optional[str] = None
-
-        self.root = VDirectory(name="")
+        self.root = VDirectory("")
         self.cwd = "/"
-
-        # Load CSV and build tree
+        self.sha256 = None
         self._load_csv(csv_path)
 
-    # Утилиты
+    #вспомогательные
+    def _normalize_posix(self, p: str) -> str:
+        # Нормализация пути в POSIX-формате
+        p = p.replace("\\", "/")
+        if not p.startswith("/"):
+            p = posixpath.join(self.cwd, p)
+        norm = posixpath.normpath(p)
+        return "/" if norm == "." else norm
+
     def _compute_sha256(self, data: bytes) -> str:
+        # Хэш содержимого CSV
         h = hashlib.sha256()
         h.update(data)
         return h.hexdigest()
 
-    def _normalize_posix(self, p: str, allow_relative: bool = False) -> str:
-        if not p:
-            return self.cwd
-        # Replace backslashes for safety
-        p = p.replace("\\", "/")
-        if p.startswith("/"):
-            norm = posixpath.normpath(p)
-        else:
-            # relative to cwd
-            norm = posixpath.normpath(posixpath.join(self.cwd, p))
-        if norm == ".":
-            return "/"
-        if not norm.startswith("/"):
-            norm = "/" + norm
-        return norm
-
-    # Загрузка CSV
-    def _load_csv(self, csv_path: str) -> None:
+    #загрузка CSV
+    def _load_csv(self, csv_path: str):
         if not os.path.isfile(csv_path):
-            raise VFSException(f"CSV file not found: {csv_path}")
-
+            raise VFSException(f"CSV not found: {csv_path}")
         with open(csv_path, "rb") as bf:
             data = bf.read()
-            self.source_bytes = data
             self.sha256 = self._compute_sha256(data)
-
-        # Parse CSV text (assume UTF-8; if fails, raise)
-        text = self.source_bytes.decode("utf-8", errors="replace").splitlines()
-        reader = csv.reader(text)
+        lines = data.decode("utf-8").splitlines()
+        reader = csv.reader(lines)
         rows = list(reader)
-        header_present = False
-        header = []
-        if rows:
-            first = [c.strip().lower() for c in rows[0]]
-            if "path" in first and "type" in first:
-                header_present = True
-                header = first
-                data_rows = rows[1:]
-            else:
-                data_rows = rows
-        else:
-            data_rows = []
-
-        #Построение дерева
-        for row in data_rows:
-            if not row or all((not cell.strip()) for cell in row):
+        if rows and "path" in rows[0]:
+            rows = rows[1:]  # пропускаем заголовок
+        for row in rows:
+            if len(row) < 2:
                 continue
-            if header_present:
-                d = {header[i]: row[i].strip() if i < len(row) else "" for i in range(len(header))}
-                path = d.get("path", "")
-                typ = d.get("type", "").lower()
-                content = d.get("content", "")
-            else:
-                path = row[0].strip() if len(row) > 0 else ""
-                typ = row[1].strip().lower() if len(row) > 1 else ""
-                content = row[2].strip() if len(row) > 2 else ""
-
-            if not path:
-                continue
-            path = path.replace("\\", "/")
+            path, typ = row[0].strip(), row[1].strip().lower()
+            content = row[2].strip() if len(row) > 2 else ""
             if not path.startswith("/"):
                 path = "/" + path
-
             if typ == "dir":
                 self._ensure_dir(path)
             elif typ == "file":
                 parent_dir = posixpath.dirname(path)
-                self._ensure_dir(parent_dir)
                 name = posixpath.basename(path)
-                parent_node = self._get_node(parent_dir)
-                if not isinstance(parent_node, VDirectory):
-                    raise VFSException(f"Parent {parent_dir} is not a directory for file {path}")
-                f = VFile(name=name, content=content)
-                parent_node.add_child(f)
-            else:
+                parent = self._ensure_dir(parent_dir)
+                parent.add_child(VFile(name, content))
 
-                parent_dir = posixpath.dirname(path)
-                self._ensure_dir(parent_dir)
-                name = posixpath.basename(path)
-                parent_node = self._get_node(parent_dir)
-                f = VFile(name=name, content=content)
-                parent_node.add_child(f)
-
-    #Обработка дерева
     def _ensure_dir(self, abs_path: str) -> VDirectory:
+        # Создаёт недостающие каталоги по пути
         abs_path = self._normalize_posix(abs_path)
         if abs_path == "/":
             return self.root
-
         parts = [p for p in abs_path.split("/") if p]
-        node: VDirectory = self.root
+        node = self.root
         for seg in parts:
             child = node.get_child(seg)
             if child is None:
-                newdir = VDirectory(name=seg)
+                newdir = VDirectory(seg)
                 node.add_child(newdir)
                 node = newdir
+            elif isinstance(child, VDirectory):
+                node = child
             else:
-                if isinstance(child, VDirectory):
-                    node = child
-                else:
-                    raise VFSException(f"Path conflict: {child.path()} exists as file when directory expected")
+                raise VFSException(f"Path conflict at {seg}")
         return node
 
     def _get_node(self, abs_path: str) -> Optional[VEntry]:
+        # Возвращает объект по абсолютному пути
         abs_path = self._normalize_posix(abs_path)
         if abs_path == "/":
             return self.root
@@ -191,14 +153,9 @@ class VirtualFileSystem:
                 return None
         return node
 
-    def vfs_info(self) -> Dict[str, Optional[str]]:
-        return {
-            "filename": os.path.basename(self.source_path) if self.source_path else None,
-            "sha256": self.sha256
-        }
-
-    def pwd(self) -> str:
-        return self.cwd
+    #  команды
+    def vfs_info(self):
+        return {"filename": os.path.basename(self.source_path), "sha256": self.sha256}
 
     def ls(self, path: Optional[str] = None) -> List[str]:
         target = self.cwd if path is None else path
@@ -207,49 +164,82 @@ class VirtualFileSystem:
             raise VFSException(f"No such file or directory: {target}")
         if isinstance(node, VDirectory):
             return sorted(node.children.keys())
-        else:
-            return [node.name]
+        return [node.name]
 
-    def cd(self, path: str) -> None:
-        if not path:
-            self.cwd = "/"
-            return
-        abs_path = self._normalize_posix(path)
+    def cd(self, path: str):
+        abs_path = self._normalize_posix(path or "/")
         node = self._get_node(abs_path)
-        if node is None:
+        if node is None or not isinstance(node, VDirectory):
             raise VFSException(f"No such directory: {path}")
-        if not isinstance(node, VDirectory):
-            raise VFSException(f"Not a directory: {path}")
         self.cwd = abs_path
 
-    def read_file(self, path: str, decode_base64: bool = False) -> bytes:
-        abs_path = self._normalize_posix(path)
-        node = self._get_node(abs_path)
-        if node is None:
-            raise VFSException(f"No such file: {path}")
-        if not isinstance(node, VFile):
-            raise VFSException(f"Path is not a file: {path}")
-        return node.read(decode_base64=decode_base64)
+    def tree(self, path: Optional[str] = None) -> str:
+        # Рекурсивно строит дерево каталогов
+        start = self._get_node(path or self.cwd)
+        if start is None:
+            raise VFSException("No such path")
+        lines = []
 
-    def tree(self, path: Optional[str] = None, max_depth: Optional[int] = None) -> str:
-        start_path = self.cwd if path is None else path
-        node = self._get_node(start_path)
-        if node is None:
-            raise VFSException(f"No such path: {start_path}")
-        lines: List[str] = []
-
-        def _recurse(n: VEntry, prefix: str, depth: int):
-            name = n.name if n.parent is not None else "/"
-            lines.append(f"{prefix}{name}")
+        def _recurse(n: VEntry, prefix=""):
+            name = n.name if n.parent else "/"
+            lines.append(prefix + name)
             if isinstance(n, VDirectory):
-                if max_depth is not None and depth >= max_depth:
-                    return
-                for child_name in sorted(n.children.keys()):
-                    child = n.children[child_name]
-                    _recurse(child, prefix + "  ", depth + 1)
+                for k in sorted(n.children.keys()):
+                    _recurse(n.children[k], prefix + "  ")
 
-        _recurse(node, "", 0)
+        _recurse(start)
         return "\n".join(lines)
 
-    def get_node(self, path: str) -> Optional[VEntry]:
-        return self._get_node(path)
+    def read_file(self, path: str) -> bytes:
+        node = self._get_node(path)
+        if not node or not isinstance(node, VFile):
+            raise VFSException(f"Not a file: {path}")
+        return node.read()
+
+    # chmod и rm
+    def _parse_mode(self, mode_str: str) -> int:
+        # Конвертирует строку вида '644' или 'rwxr-xr-x' в число
+        s = mode_str.strip()
+        if s.isdigit() or s.startswith("0o"):
+            return int(s, 8)
+        if len(s) == 9 and all(c in "rwx-" for c in s):
+            vals = []
+            for i in range(0, 9, 3):
+                trip = s[i:i+3]
+                v = (4 if trip[0]=="r" else 0) | (2 if trip[1]=="w" else 0) | (1 if trip[2]=="x" else 0)
+                vals.append(v)
+            return (vals[0]<<6)|(vals[1]<<3)|vals[2]
+        raise VFSException("Invalid mode format")
+
+    def chmod(self, path: str, mode_str: str):
+        node = self._get_node(path)
+        if node is None:
+            raise VFSException(f"No such file or directory: {path}")
+        node.mode = self._parse_mode(mode_str)
+
+    def rm(self, path: str, recursive=False):
+        abs_path = self._normalize_posix(path)
+        if abs_path == "/":
+            raise VFSException("Cannot remove root")
+        node = self._get_node(abs_path)
+        if node is None:
+            raise VFSException(f"No such file or directory: {path}")
+        parent_path = posixpath.dirname(abs_path)
+        parent = self._get_node(parent_path)
+        if not isinstance(parent, VDirectory):
+            raise VFSException("Parent not directory")
+        if isinstance(node, VFile):
+            del parent.children[node.name]
+        elif isinstance(node, VDirectory):
+            if node.children and not recursive:
+                raise VFSException(f"Directory not empty: {path}")
+            if recursive:
+                self._remove_recursive(node)
+            del parent.children[node.name]
+
+    def _remove_recursive(self, node: VDirectory):
+        # Удаляет каталог со всем содержимым
+        for child in list(node.children.values()):
+            if isinstance(child, VDirectory):
+                self._remove_recursive(child)
+        node.children.clear()
