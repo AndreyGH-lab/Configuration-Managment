@@ -68,13 +68,13 @@ Configuration-Management/
 python prac1.py
 
 
-После запуска эмулятор автоматически загружает виртуальную файловую систему и выполняет команды из файла startup_stage6.txt.  
+После запуска эмулятор автоматически загружает виртуальную файловую систему и выполняет команды из файла startup.txt.  
 Далее можно вводить команды вручную.
 
 Пример работы программы:
 
 [INFO] VFS loaded successfully from vfs_nested.csv
-[INFO] Executing startup script: startup_stage6.txt
+[INFO] Executing startup script: startup.txt
 ```
 danis@DESKTOP:/$ ls
 assets docs
