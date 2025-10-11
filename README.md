@@ -75,7 +75,7 @@ python prac1.py
 
 [INFO] VFS loaded successfully from vfs_nested.csv
 [INFO] Executing startup script: startup_stage6.txt
-
+```
 danis@DESKTOP:/$ ls
 assets docs
 danis@DESKTOP:/$ cd /docs
@@ -86,7 +86,7 @@ danis@DESKTOP:/docs$ chmod 700 readme.txt
 danis@DESKTOP:/docs$ rm readme.txt
 danis@DESKTOP:/docs$ exit
 Exiting emulator.
-
+```
 
 ## Заключение
 
